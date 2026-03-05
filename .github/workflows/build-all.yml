@@ -3,11 +3,7 @@ name: Build all firmwares
 on:
   push:
     paths:
-      - 'qmk_firmware/keyboards/keyball/**.mk'
-      - 'qmk_firmware/keyboards/keyball/**.c'
-      - 'qmk_firmware/keyboards/keyball/**.h'
-      - 'qmk_firmware/keyboards/keyball/**.json'
-      - '.github/**.yml'
+      - 'qmk_firmware/keyboards/keyball/**'
     tags-ignore:
       - '*'
     branches:
