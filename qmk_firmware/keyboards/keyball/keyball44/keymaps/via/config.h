@@ -1,6 +1,4 @@
 /*
-This is the c configuration file for the keymap
-
 Copyright 2022 @Yowkees
 Copyright 2022 MURAOKA Taro (aka KoRoN, @kaoriya)
 
@@ -20,6 +18,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma once
 
+// ==============================
+// RGB設定
+// ==============================
 #ifdef RGBLIGHT_ENABLE
 //#    define RGBLIGHT_EFFECT_BREATHING
 //#    define RGBLIGHT_EFFECT_RAINBOW_MOOD
@@ -33,10 +34,21 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //#    define RGBLIGHT_EFFECT_TWINKLE
 #endif
 
+// ==============================
+// 基本設定
+// ==============================
 #define TAP_CODE_DELAY 3
 
+// ==============================
+// マウスレイヤー自動切替
+// ==============================
 #define POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #define AUTO_MOUSE_DEFAULT_LAYER 1
-#define AUTO_MOUSE_LAYER_KEEP_TIME 99999
 
+// 60,000,000 ms = 約16時間（実質ほぼ無限）
+#define AUTO_MOUSE_LAYER_KEEP_TIME 60000000
+
+// ==============================
+// VIAレイヤー数
+// ==============================
 #define DYNAMIC_KEYMAP_LAYER_COUNT 7
