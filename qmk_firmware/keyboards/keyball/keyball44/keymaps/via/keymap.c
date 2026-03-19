@@ -19,10 +19,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include QMK_KEYBOARD_H
 #include "quantum.h"
 
-/* 追加：カスタムキーコード */
 enum custom_keycodes {
     BTN1_TO0 = SAFE_RANGE,
 };
+
+void click_and_to0(bool pressed) {
+    if (pressed) {
+        register_code(KC_BTN1);
+    } else {
+        unregister_code(KC_BTN1);
+        layer_move(0);
+    }
+}
 
 // clang-format off
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -48,12 +56,12 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
                   KC_0     , KC_DOT  , _______  ,         _______  , _______  ,                   KC_DEL   , _______  , _______       , _______  , _______
   ),
  
-[3] = LAYOUT_universal(
-  RGB_TOG  , AML_TO   , AML_I50  , AML_D50  , _______  , _______  ,                                        RGB_M_P  , RGB_M_B  , RGB_M_R  , RGB_M_SW , RGB_M_SN , RGB_M_K  ,
-  RGB_MOD  , RGB_HUI  , RGB_SAI  , RGB_VAI  , _______  , SCRL_DVI ,                                        RGB_M_X  , RGB_M_G  , RGB_M_T  , RGB_M_TW , _______  , _______  ,
-  RGB_RMOD , RGB_HUD  , RGB_SAD  , RGB_VAD  , _______  , SCRL_DVD ,                                        CPI_D1K  , CPI_D100 , CPI_I100 , CPI_I1K  , _______  , KBC_SAVE ,
+  [3] = LAYOUT_universal(
+    RGB_TOG  , AML_TO   , AML_I50  , AML_D50  , _______  , _______  ,                                       RGB_M_P  , RGB_M_B  , RGB_M_R  , RGB_M_SW , RGB_M_SN , RGB_M_K  ,
+    RGB_MOD  , RGB_HUI  , RGB_SAI  , RGB_VAI  , _______  , SCRL_DVI ,                                       RGB_M_X  , RGB_M_G  , RGB_M_T  , RGB_M_TW , _______  , _______  ,
+    RGB_RMOD , RGB_HUD  , RGB_SAD  , RGB_VAD  , _______  , SCRL_DVD ,                                       CPI_D1K  , CPI_D100 , CPI_I100 , CPI_I1K  , _______  , KBC_SAVE ,
                   QK_BOOT  , KBC_RST  , _______  ,        _______  , _______  ,                   _______  , _______  , _______       , KBC_RST  , QK_BOOT
-),
+  ),
 
   [4] = LAYOUT_universal(
     _______, _______, _______, _______, _______, _______,                                  _______, _______, _______, _______, _______, _______,
@@ -78,16 +86,11 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 // clang-format on
 
-/* 追加：カスタムキーの動作 */
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case BTN1_TO0:
-            if (record->event.pressed) {
-                register_code(KC_BTN1);     // 左クリック押下
-            } else {
-                unregister_code(KC_BTN1);   // 左クリック解放
-                layer_move(0);              // Layer 0 に戻る
-            }
+        case KC_F16:
+            click_and_to0(record->event.pressed);
             return false;
     }
     return true;
@@ -96,8 +99,8 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 layer_state_t layer_state_set_user(layer_state_t state) {
     // Auto enable scroll mode when the highest layer is 3
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
-    #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-    #endif
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+#endif
     return state;
 }
 
