@@ -72,7 +72,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 // clang-format on
 
-bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
+bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case QK_KB_0:  // USER0
             if (record->event.pressed) {
@@ -92,7 +92,7 @@ bool process_record_kb(uint16_t keycode, keyrecord_t *record) {
             }
             return false;
     }
-    return process_record_user(keycode, record);
+    return true;
 }
 
 layer_state_t layer_state_set_user(layer_state_t state) {
