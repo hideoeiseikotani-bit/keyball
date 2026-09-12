@@ -95,10 +95,22 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
+static bool layer6_indicator_active = false;
+
 layer_state_t layer_state_set_user(layer_state_t state) {
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #endif
+
+    // TO(6) / TO(0) do not normally send anything to Windows.  Emit a rare
+    // shortcut only when Layer 6 is entered or left so AutoHotkey can keep a
+    // persistent on-screen indicator in sync with the keyboard layer.
+    bool layer6_is_active = get_highest_layer(state) == 6;
+    if (layer6_is_active != layer6_indicator_active) {
+        tap_code16(layer6_is_active ? C(A(S(KC_6))) : C(A(S(KC_0))));
+        layer6_indicator_active = layer6_is_active;
+    }
+
     return state;
 }
 
