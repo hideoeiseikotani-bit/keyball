@@ -96,22 +96,42 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
 }
 
 static bool layer6_indicator_active = false;
+static int8_t layer6_indicator_pending = -1;
+static uint16_t layer6_indicator_changed_at = 0;
 
 layer_state_t layer_state_set_user(layer_state_t state) {
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #endif
 
-    // TO(6) / TO(0) do not normally send anything to Windows.  Emit a rare
-    // shortcut only when Layer 6 is entered or left so AutoHotkey can keep a
-    // persistent on-screen indicator in sync with the keyboard layer.
+    // TO(6) / TO(0) do not normally send anything to Windows. Queue a rare
+    // shortcut when Layer 6 is entered or left. It is sent from matrix_scan_user
+    // after the layer-switching key has finished processing.
     bool layer6_is_active = get_highest_layer(state) == 6;
     if (layer6_is_active != layer6_indicator_active) {
-        tap_code16(layer6_is_active ? C(A(S(KC_6))) : C(A(S(KC_0))));
+        layer6_indicator_pending = layer6_is_active ? 1 : 0;
+        layer6_indicator_changed_at = timer_read();
         layer6_indicator_active = layer6_is_active;
     }
 
     return state;
+}
+
+void matrix_scan_user(void) {
+    if (layer6_indicator_pending < 0 || !is_keyboard_master()) {
+        return;
+    }
+
+    if (timer_elapsed(layer6_indicator_changed_at) < 30) {
+        return;
+    }
+
+    uint16_t notification_keycode = layer6_indicator_pending ? C(A(S(KC_6))) : C(A(S(KC_0)));
+    layer6_indicator_pending = -1;
+
+    register_code16(notification_keycode);
+    wait_ms(30);
+    unregister_code16(notification_keycode);
 }
 
 #ifdef OLED_ENABLE
