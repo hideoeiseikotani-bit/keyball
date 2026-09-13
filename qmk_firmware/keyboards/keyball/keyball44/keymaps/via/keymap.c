@@ -72,7 +72,33 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 };
 // clang-format on
 
+static layer_state_t layer6_return_state = 0;
+static uint8_t layer6_lower_layer_request = 0;
+static uint8_t layer6_suppressed_for_layer = 0;
+static bool layer6_lower_layer_released = false;
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // Mark standard MO(1-5) and held LT(1-5, kc) events. layer_state_set_user
+    // uses the mark to distinguish an intentional hold from auto-mouse Layer 1.
+    uint8_t lower_layer = 0;
+    if (IS_QK_MOMENTARY(keycode)) {
+        lower_layer = QK_MOMENTARY_GET_LAYER(keycode);
+    } else if (IS_QK_LAYER_TAP(keycode) && record->tap.count == 0) {
+        lower_layer = QK_LAYER_TAP_GET_LAYER(keycode);
+    }
+
+    if (lower_layer >= 1 && lower_layer <= 5) {
+        if (record->event.pressed && layer6_suppressed_for_layer == 0) {
+            layer6_lower_layer_request = lower_layer;
+        } else if (!record->event.pressed) {
+            if (layer6_suppressed_for_layer == lower_layer) {
+                layer6_lower_layer_released = true;
+            } else if (layer6_lower_layer_request == lower_layer) {
+                layer6_lower_layer_request = 0;
+            }
+        }
+    }
+
     switch (keycode) {
         case QK_USER_0:  // USER0
             if (record->event.pressed) {
@@ -100,6 +126,27 @@ static int8_t layer6_indicator_pending = -1;
 static uint16_t layer6_indicator_changed_at = 0;
 
 layer_state_t layer_state_set_user(layer_state_t state) {
+    // QMK normally stacks lower layers under Layer 6, leaving Layer 6 highest.
+    // For an intentional MO/LT hold, temporarily remove Layer 6 and restore the
+    // exact previous state when that hold is released.
+    if (layer6_suppressed_for_layer != 0) {
+        layer_state_t held_layer_bit = (layer_state_t)1 << layer6_suppressed_for_layer;
+        if (layer6_lower_layer_released && (state & held_layer_bit) == 0) {
+            state |= layer6_return_state;
+            layer6_suppressed_for_layer = 0;
+            layer6_lower_layer_released = false;
+        }
+    } else if (layer6_lower_layer_request != 0) {
+        layer_state_t layer6_bit = (layer_state_t)1 << 6;
+        layer_state_t held_layer_bit = (layer_state_t)1 << layer6_lower_layer_request;
+        if ((state & layer6_bit) != 0 && (state & held_layer_bit) != 0) {
+            layer6_return_state = state & ~held_layer_bit;
+            state &= ~layer6_bit;
+            layer6_suppressed_for_layer = layer6_lower_layer_request;
+            layer6_lower_layer_request = 0;
+        }
+    }
+
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #endif
