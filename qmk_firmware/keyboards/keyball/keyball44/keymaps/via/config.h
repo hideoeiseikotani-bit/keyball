@@ -45,8 +45,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define POINTING_DEVICE_AUTO_MOUSE_ENABLE
 #define AUTO_MOUSE_DEFAULT_LAYER 1
 
-// 60,000,000 ms = 約16時間（実質ほぼ無限）
-#define AUTO_MOUSE_LAYER_KEEP_TIME 60000000
+// 最後のトラックボール操作から自動マウスレイヤーを解除するまで60秒
+#define AUTO_MOUSE_TIME 60000
 
 // ==============================
 // VIAレイヤー数

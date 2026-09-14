@@ -77,6 +77,13 @@ static uint8_t layer6_lower_layer_request = 0;
 static uint8_t layer6_suppressed_for_layer = 0;
 static bool layer6_lower_layer_released = false;
 
+void keyboard_post_init_user(void) {
+#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
+    // Apply the firmware value after Keyball loads its older EEPROM setting.
+    set_auto_mouse_timeout(AUTO_MOUSE_TIME);
+#endif
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     // Mark standard MO(1-5) and held LT(1-5, kc) events. layer_state_set_user
     // uses the mark to distinguish an intentional hold from auto-mouse Layer 1.
