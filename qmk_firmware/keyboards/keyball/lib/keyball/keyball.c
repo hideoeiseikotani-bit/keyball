@@ -311,10 +311,13 @@ static void rpc_get_info_invoke(void) {
     round++;
     keyball_info_t recv = {0};
     if (!transaction_rpc_exec(KEYBALL_GET_INFO, 0, NULL, sizeof(recv), &recv)) {
-        if (round < KEYBALL_TX_GETINFO_MAXTRY) {
-            dprintf("keyball:rpc_get_info_invoke: missed #%d\n", round);
-            return;
-        }
+        // Do not permanently conclude that the other half has no trackball.
+        // After flashing or a slow split start-up, matrix communication may
+        // recover only after the original five-second retry window.  Keep
+        // negotiating until the remote half actually answers so its motion
+        // data becomes available as soon as the split link is ready.
+        dprintf("keyball:rpc_get_info_invoke: missed #%d\n", round);
+        return;
     }
     negotiated             = true;
     keyball.that_enable    = true;

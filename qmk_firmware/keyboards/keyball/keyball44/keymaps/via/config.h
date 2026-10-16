@@ -39,6 +39,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // ==============================
 #define TAP_CODE_DELAY 3
 
+// ATmega32U4がWindowsのUSBセレクティブサスペンドから復帰できず、
+// 長時間放置後にキーとトラックボールが停止する現象を避ける。
+#define NO_SUSPEND_POWER_DOWN
+#define USB_SUSPEND_WAKEUP_DELAY 200
+
 // ==============================
 // マウスレイヤー自動切替
 // ==============================
