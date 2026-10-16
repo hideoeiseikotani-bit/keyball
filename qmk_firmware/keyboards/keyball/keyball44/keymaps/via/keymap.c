@@ -17,7 +17,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include QMK_KEYBOARD_H
-#include "quantum.h"
 
 // clang-format off
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
@@ -76,21 +75,176 @@ static layer_state_t layer6_return_state = 0;
 static uint8_t layer6_lower_layer_request = 0;
 static uint8_t layer6_suppressed_for_layer = 0;
 static bool layer6_lower_layer_released = false;
+static bool layer6_auto_mouse_return = false;
+static uint8_t user0_return_layer = 0;
+
+// USER2/USER9/USER10 use delayed layer holds. A quick tap never changes the
+// layer, avoiding transient Layer 6 notifications and host-side races.
+#define USER_LAYER_HOLD_TERM 150
+
+typedef struct {
+    bool pressed;
+    bool hold_active;
+    uint16_t pressed_at;
+    layer_state_t return_state;
+} user_layer_hold_t;
+
+// USER2: tap = Layer 0 + Kana, hold = temporary Layer 4.
+// USER9/USER10: tap = AutoHotkey wrapper, hold = temporary lower layer.
+static user_layer_hold_t user2_layer_hold = {0};
+static user_layer_hold_t user9_layer_hold = {0};
+static user_layer_hold_t user10_layer_hold = {0};
+
+// USER12: tap = AutoHotkey trigger for "[?]", hold = Left Alt.
+static bool user12_pressed = false;
+static bool user12_hold_active = false;
+static uint16_t user12_pressed_at = 0;
+
+// USER29: tap = Enter, hold = Layer 6 + Left Shift.
+static bool user29_pressed = false;
+static bool user29_hold_active = false;
+static uint16_t user29_pressed_at = 0;
+
+// USER30: tap = Layer 0 + alphanumeric, hold = Left Shift.
+static bool user30_pressed = false;
+static bool user30_shift_active = false;
+static uint16_t user30_pressed_at = 0;
+
+// AutoHotkey uses a short Scroll Lock pulse as an explicit Layer 0 command.
+static bool last_scroll_lock_state = false;
+
+static void force_layer0(void);
+
+static void send_ahk_trigger(uint16_t trigger_key) {
+    tap_code16(C(A(S(trigger_key))));
+}
+
+static void run_user2_tap_action(void) {
+    // Remapで動作確認済みの「かな」キーを、Layer 0移動後に直接送る。
+    force_layer0();
+    tap_code(KC_LNG1);
+}
+
+static void run_user30_tap_action(void) {
+    // Layer6・Auto Mouse・MO/LTの復元予約を消してからLayer0へ移動する。
+    force_layer0();
+    send_ahk_trigger(KC_8);
+}
+
+static void activate_user12_alt_hold(void) {
+    if (!user12_hold_active) {
+        user12_hold_active = true;
+        register_code(KC_LALT);
+    }
+}
+
+static void activate_temporary_layer_hold(uint8_t target_layer, bool *hold_active) {
+    if (!*hold_active) {
+        layer_state_t target_bit = (layer_state_t)1 << target_layer;
+        layer_state_t layer6_bit = (layer_state_t)1 << 6;
+        *hold_active = true;
+        layer_state_set((layer_state | target_bit) & ~layer6_bit);
+    }
+}
+
+static void begin_user_layer_hold(user_layer_hold_t *state) {
+    state->pressed = true;
+    state->hold_active = false;
+    state->pressed_at = timer_read();
+    state->return_state = layer_state;
+}
+
+// Returns true only when the completed action was a tap.
+static bool finish_user_layer_hold(user_layer_hold_t *state) {
+    if (!state->pressed) {
+        return false;
+    }
+
+    state->pressed = false;
+    bool was_tap = !state->hold_active;
+    if (!was_tap) {
+        layer_state_set(state->return_state);
+    }
+    state->hold_active = false;
+    state->return_state = 0;
+    return was_tap;
+}
+
+static void scan_user_layer_hold(user_layer_hold_t *state, uint8_t target_layer, uint16_t hold_term) {
+    if (state->pressed && !state->hold_active && timer_elapsed(state->pressed_at) >= hold_term) {
+        activate_temporary_layer_hold(target_layer, &state->hold_active);
+    }
+}
+
+static void activate_user30_shift_hold(void) {
+    if (!user30_shift_active) {
+        user30_shift_active = true;
+        register_code(KC_LSFT);
+    }
+}
+
+static void activate_user29_layer6_shift_hold(void) {
+    if (!user29_hold_active) {
+        user29_hold_active = true;
+        layer_move(6);
+        register_code(KC_LSFT);
+    }
+}
 
 void keyboard_post_init_user(void) {
+    last_scroll_lock_state = host_keyboard_led_state().scroll_lock;
 #ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
     // Apply the firmware value after Keyball loads its older EEPROM setting.
     set_auto_mouse_timeout(AUTO_MOUSE_TIME);
 #endif
 }
 
+bool pre_process_record_user(uint16_t keycode, keyrecord_t *record) {
+    // Auto Mouse handles non-mouse custom keycodes before process_record_user.
+    // Remember the origin here so USER0 can return to Layer 6 even if Auto
+    // Mouse removes Layer 1 before the USER0 handler runs.
+    if (keycode == QK_USER_0 && record->event.pressed) {
+        user0_return_layer = layer6_auto_mouse_return ? 6 : 0;
+    }
+
+    if (user29_pressed && keycode != QK_USER_29 && record->event.pressed) {
+        activate_user29_layer6_shift_hold();
+    }
+
+    // Shift can be activated before the other key is sent; unlike a layer
+    // change, this does not require resolving that key from a different layer.
+    if (user30_pressed && keycode != QK_USER_30 && record->event.pressed) {
+        activate_user30_shift_hold();
+    }
+
+    // Another key pressed during USER12 makes it an Alt hold immediately.
+    if (user12_pressed && keycode != QK_USER_12 && record->event.pressed) {
+        activate_user12_alt_hold();
+    }
+    return true;
+}
+
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
+    if (keycode >= QK_USER_7 && keycode <= QK_USER_28 &&
+        keycode != QK_USER_9 && keycode != QK_USER_10 && keycode != QK_USER_12) {
+        if (record->event.pressed) {
+            // USB keycodes have one gap between F12 and F13.
+            uint8_t offset = keycode - QK_USER_7;
+            uint8_t trigger_key = offset < 12 ? KC_F1 + offset : KC_F13 + offset - 12;
+            send_ahk_trigger(trigger_key);
+        }
+        return false;
+    }
+
     // Mark standard MO(1-5) and held LT(1-5, kc) events. layer_state_set_user
     // uses the mark to distinguish an intentional hold from auto-mouse Layer 1.
     uint8_t lower_layer = 0;
     if (IS_QK_MOMENTARY(keycode)) {
         lower_layer = QK_MOMENTARY_GET_LAYER(keycode);
-    } else if (IS_QK_LAYER_TAP(keycode) && record->tap.count == 0) {
+    } else if (IS_QK_LAYER_TAP(keycode)) {
+        // The release event may have tap.count > 0. Keep the layer number so
+        // a tapped LT key clears the pending request instead of leaving stale
+        // state that blocks a later Auto Mouse activation from Layer 6.
         lower_layer = QK_LAYER_TAP_GET_LAYER(keycode);
     }
 
@@ -109,22 +263,166 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case QK_USER_0:  // USER0
             if (record->event.pressed) {
-                register_code(KC_BTN1);
+                // AutoHotkey: left mouse button down.
+                send_ahk_trigger(KC_F23);
             } else {
-                unregister_code(KC_BTN1);
-                layer_move(0);
+                // AutoHotkey: left mouse button up.
+                send_ahk_trigger(KC_F24);
+                layer_move(user0_return_layer);
+                user0_return_layer = 0;
             }
             return false;
 
         case QK_USER_1:  // USER1
             if (record->event.pressed) {
-                tap_code(KC_BTN1);
-                wait_ms(30);
-                tap_code(KC_BTN1);
-                layer_move(0);
+                // AutoHotkey: double click.
+                send_ahk_trigger(KC_1);
+                force_layer0();
+            }
+            return false;
+
+        case QK_USER_2:  // USER2: tap Layer 0 + Kana / hold MO(4)
+            if (record->event.pressed) {
+                begin_user_layer_hold(&user2_layer_hold);
+            } else if (finish_user_layer_hold(&user2_layer_hold)) {
+                run_user2_tap_action();
+            }
+            return false;
+
+        case QK_USER_3:  // USER3: 0492
+            if (record->event.pressed) {
+                // Send directly from the keyboard so this works even when
+                // AutoHotkey has not started yet.
+                tap_code(KC_0);
+                tap_code(KC_4);
+                tap_code(KC_9);
+                tap_code(KC_2);
+            }
+            return false;
+
+        case QK_USER_4:  // USER4: Ctrl+Shift+7, then Hiragana
+            if (record->event.pressed) {
+                send_ahk_trigger(KC_4);
+            }
+            return false;
+
+        case QK_USER_5:  // USER5: Win+D, then Alt+F4
+            if (record->event.pressed) {
+                send_ahk_trigger(KC_5);
+            }
+            return false;
+
+        case QK_USER_6:  // USER6: Win, then Down
+            if (record->event.pressed) {
+                send_ahk_trigger(KC_7);
+            }
+            return false;
+
+        case QK_USER_9:  // tap: wrap with μ, hold: MO(2)
+            if (record->event.pressed) {
+                begin_user_layer_hold(&user9_layer_hold);
+            } else if (finish_user_layer_hold(&user9_layer_hold)) {
+                send_ahk_trigger(KC_F3);
+            }
+            return false;
+
+        case QK_USER_10:  // tap: wrap with η, hold: MO(5)
+            if (record->event.pressed) {
+                begin_user_layer_hold(&user10_layer_hold);
+            } else if (finish_user_layer_hold(&user10_layer_hold)) {
+                send_ahk_trigger(KC_F4);
+            }
+            return false;
+
+        case QK_USER_12:  // USER12: tap "[?]" / hold Left Alt
+            if (record->event.pressed) {
+                user12_pressed = true;
+                user12_hold_active = false;
+                user12_pressed_at = timer_read();
+            } else {
+                user12_pressed = false;
+                if (user12_hold_active) {
+                    unregister_code(KC_LALT);
+                    user12_hold_active = false;
+                } else {
+                    // Same private trigger previously assigned to USER12.
+                    send_ahk_trigger(KC_F6);
+                }
+            }
+            return false;
+
+        case QK_USER_29:  // tap Enter / hold Layer 6 + Left Shift
+            if (record->event.pressed) {
+                user29_pressed = true;
+                user29_hold_active = false;
+                user29_pressed_at = timer_read();
+            } else if (user29_pressed) {
+                user29_pressed = false;
+                if (user29_hold_active) {
+                    unregister_code(KC_LSFT);
+                    user29_hold_active = false;
+                } else {
+                    tap_code(KC_ENT);
+                }
+            }
+            return false;
+
+        case QK_USER_30:  // tap Layer 0 + alphanumeric / hold Left Shift
+            if (record->event.pressed) {
+                user30_pressed = true;
+                user30_shift_active = false;
+                user30_pressed_at = timer_read();
+            } else if (user30_pressed) {
+                user30_pressed = false;
+                if (user30_shift_active) {
+                    unregister_code(KC_LSFT);
+                    user30_shift_active = false;
+                } else {
+                    run_user30_tap_action();
+                }
             }
             return false;
     }
+    return true;
+}
+
+static void force_layer0(void) {
+    // Cancel every deferred "return to Layer 6" state before changing layers.
+    // Otherwise layer_state_set_user() can immediately restore Layer 6 and
+    // negate the explicit Layer 0 request from AutoHotkey.
+    layer6_auto_mouse_return = false;
+    layer6_return_state = 0;
+    layer6_lower_layer_request = 0;
+    layer6_suppressed_for_layer = 0;
+    layer6_lower_layer_released = false;
+    user0_return_layer = 0;
+    user2_layer_hold = (user_layer_hold_t){0};
+    user9_layer_hold = (user_layer_hold_t){0};
+    user10_layer_hold = (user_layer_hold_t){0};
+    if (user12_hold_active) {
+        unregister_code(KC_LALT);
+    }
+    user12_pressed = false;
+    user12_hold_active = false;
+    if (user29_hold_active) {
+        unregister_code(KC_LSFT);
+    }
+    user29_pressed = false;
+    user29_hold_active = false;
+    if (user30_shift_active) {
+        unregister_code(KC_LSFT);
+    }
+    user30_pressed = false;
+    user30_shift_active = false;
+    layer_move(0);
+}
+
+bool led_update_user(led_t led_state) {
+    if (led_state.scroll_lock != last_scroll_lock_state) {
+        // AutoHotkey explicitly requested Layer 0.
+        force_layer0();
+    }
+    last_scroll_lock_state = led_state.scroll_lock;
     return true;
 }
 
@@ -133,6 +431,21 @@ static int8_t layer6_indicator_pending = -1;
 static uint16_t layer6_indicator_changed_at = 0;
 
 layer_state_t layer_state_set_user(layer_state_t state) {
+    layer_state_t layer6_bit = (layer_state_t)1 << 6;
+    layer_state_t mouse_layer_bit = (layer_state_t)1 << AUTO_MOUSE_DEFAULT_LAYER;
+
+    // Auto Mouse normally stacks Layer 1 under Layer 6, which leaves Layer 6
+    // in control. Temporarily suppress Layer 6 while the automatic mouse layer
+    // is active, then restore it when Layer 1 times out or USER0 turns it off.
+    if (layer6_auto_mouse_return) {
+        if ((state & mouse_layer_bit) == 0) {
+            state |= layer6_bit;
+            layer6_auto_mouse_return = false;
+        } else {
+            state &= ~layer6_bit;
+        }
+    }
+
     // QMK normally stacks lower layers under Layer 6, leaving Layer 6 highest.
     // For an intentional MO/LT hold, temporarily remove Layer 6 and restore the
     // exact previous state when that hold is released.
@@ -144,7 +457,6 @@ layer_state_t layer_state_set_user(layer_state_t state) {
             layer6_lower_layer_released = false;
         }
     } else if (layer6_lower_layer_request != 0) {
-        layer_state_t layer6_bit = (layer_state_t)1 << 6;
         layer_state_t held_layer_bit = (layer_state_t)1 << layer6_lower_layer_request;
         if ((state & layer6_bit) != 0 && (state & held_layer_bit) != 0) {
             layer6_return_state = state & ~held_layer_bit;
@@ -154,9 +466,18 @@ layer_state_t layer_state_set_user(layer_state_t state) {
         }
     }
 
+    // A Layer 1 transition with no MO/LT request is an automatic mouse-layer
+    // activation. Remember that Layer 6 was the fixed origin and expose Layer 1.
+    if (!layer6_auto_mouse_return &&
+        layer6_suppressed_for_layer == 0 &&
+        layer6_lower_layer_request == 0 &&
+        (state & layer6_bit) != 0 &&
+        (state & mouse_layer_bit) != 0) {
+        layer6_auto_mouse_return = true;
+        state &= ~layer6_bit;
+    }
+
     keyball_set_scroll_mode(get_highest_layer(state) == 3);
-#ifdef POINTING_DEVICE_AUTO_MOUSE_ENABLE
-#endif
 
     // TO(6) / TO(0) do not normally send anything to Windows. Queue a rare
     // shortcut when Layer 6 is entered or left. It is sent from matrix_scan_user
@@ -172,20 +493,34 @@ layer_state_t layer_state_set_user(layer_state_t state) {
 }
 
 void matrix_scan_user(void) {
-    if (layer6_indicator_pending < 0 || !is_keyboard_master()) {
+    scan_user_layer_hold(&user2_layer_hold, 4, TAPPING_TERM);
+    scan_user_layer_hold(&user9_layer_hold, 2, USER_LAYER_HOLD_TERM);
+    scan_user_layer_hold(&user10_layer_hold, 5, USER_LAYER_HOLD_TERM);
+
+    if (user12_pressed && !user12_hold_active && timer_elapsed(user12_pressed_at) >= TAPPING_TERM) {
+        activate_user12_alt_hold();
+    }
+
+    if (user30_pressed && !user30_shift_active && timer_elapsed(user30_pressed_at) >= TAPPING_TERM) {
+        activate_user30_shift_hold();
+    }
+
+    if (user29_pressed && !user29_hold_active && timer_elapsed(user29_pressed_at) >= TAPPING_TERM) {
+        activate_user29_layer6_shift_hold();
+    }
+
+    if (!is_keyboard_master()) {
         return;
     }
 
-    if (timer_elapsed(layer6_indicator_changed_at) < 30) {
-        return;
+    if (layer6_indicator_pending >= 0 && timer_elapsed(layer6_indicator_changed_at) >= 30) {
+        uint16_t notification_keycode = layer6_indicator_pending ? C(A(S(KC_6))) : C(A(S(KC_0)));
+        layer6_indicator_pending = -1;
+
+        // Do not pause the whole keyboard matrix while notifying AutoHotkey.
+        tap_code16(notification_keycode);
     }
 
-    uint16_t notification_keycode = layer6_indicator_pending ? C(A(S(KC_6))) : C(A(S(KC_0)));
-    layer6_indicator_pending = -1;
-
-    register_code16(notification_keycode);
-    wait_ms(30);
-    unregister_code16(notification_keycode);
 }
 
 #ifdef OLED_ENABLE

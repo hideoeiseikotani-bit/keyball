@@ -52,3 +52,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // VIAレイヤー数
 // ==============================
 #define DYNAMIC_KEYMAP_LAYER_COUNT 7
+
+// Remap/VIAの動的マクロは使用しない。マクロ番号は0件として公開し、
+// コンパイラが不要な再生処理を削減できるようにする。
+#define DYNAMIC_KEYMAP_MACRO_COUNT 0
