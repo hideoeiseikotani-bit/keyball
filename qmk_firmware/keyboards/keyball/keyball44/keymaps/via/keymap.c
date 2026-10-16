@@ -201,8 +201,8 @@ void keyboard_post_init_user(void) {
 
 bool pre_process_record_user(uint16_t keycode, keyrecord_t *record) {
     // Auto Mouse handles non-mouse custom keycodes before process_record_user.
-    // Remember the origin here so USER0 can return to Layer 6 even if Auto
-    // Mouse removes Layer 1 before the USER0 handler runs.
+    // Remember whether USER0 started from Layer 6 so its release can restore
+    // Layer 6 after the immediate click instead of always going to Layer 0.
     if (keycode == QK_USER_0 && record->event.pressed) {
         user0_return_layer = layer6_auto_mouse_return ? 6 : 0;
     }
@@ -263,11 +263,11 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case QK_USER_0:  // USER0
             if (record->event.pressed) {
-                // AutoHotkey: left mouse button down.
-                send_ahk_trigger(KC_F23);
+                // Send one complete left click immediately.  Do not keep the
+                // mouse button held, so moving the ball cannot drag an icon.
+                tap_code(KC_BTN1);
             } else {
-                // AutoHotkey: left mouse button up.
-                send_ahk_trigger(KC_F24);
+                // Restore Layer 6 only when USER0 originated there.
                 layer_move(user0_return_layer);
                 user0_return_layer = 0;
             }
