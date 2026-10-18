@@ -263,9 +263,10 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case QK_USER_0:  // USER0
             if (record->event.pressed) {
-                // Send one complete left click immediately.  Do not keep the
-                // mouse button held, so moving the ball cannot drag an icon.
-                tap_code(KC_BTN1);
+                // AutoHotkey performs one complete click in a single action.
+                // The firmware never stores a mouse-button state, preventing
+                // trackball reports from carrying an accidental drag.
+                send_ahk_trigger(KC_F23);
             } else {
                 // Restore Layer 6 only when USER0 originated there.
                 layer_move(user0_return_layer);
